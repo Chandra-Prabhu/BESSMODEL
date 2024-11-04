@@ -12,6 +12,7 @@ func main() {
 	var constrperiod int = 2
 	var tariff float64 = 2.5
 	var intrate float64 = 0.09
+	var repaymethod string = "Equal"
 	var debttenure int = 21
 	var capacity float64 = 300
 	var unitCapex float64 = 4.0
@@ -43,12 +44,12 @@ func main() {
 	capexTS[1] = capex / float64(constrperiod)
 	initialloan := capex * de
 	//fmt.Println(capexTS, initialloan)
-	debtrepayment, debtopening, debtoutstanding := debtrepay(initialloan, debttenure)
+	debtrepayment, debtopening, debtoutstanding, interestpayment := debtrepay(initialloan, debttenure, repaymethod, ebitda, intrate)
 	debtrepayment = constrappend(debtrepayment, constrperiod)
 	debtopening = constrappend(debtopening, constrperiod)
 	debtoutstanding = constrappend(debtoutstanding, constrperiod)
-	//fmt.Println(debtopening, debtrepayment, debtoutstanding)
-	interestpayment := interest(debtopening, debtoutstanding, intrate)
+	fmt.Println(debtopening[0], debtoutstanding[0])
+	interestpayment = constrappend(interestpayment, constrperiod)
 	pbdt := minus(ebitda, interestpayment)
 	_, deprec := depreciationslm(capex-nondeprecap, deprerate, pPALength)
 	//fadp = constrappend(fadp, constrperiod)
@@ -131,29 +132,13 @@ func add(from []float64, sub []float64) []float64 {
 	return to
 }
 
-func debtrepay(initialloan float64, debttenure int) ([]float64, []float64, []float64) {
-	debtrepayment := make([]float64, debttenure)
-	debtoutstanding := make([]float64, debttenure)
-	debtopening := make([]float64, debttenure)
-	debtopening[0] = initialloan
-	debtrepayment[0] = initialloan / float64(debttenure)
-	debtoutstanding[0] = debtopening[0] - debtrepayment[0]
-	for i := 1; i < debttenure; {
-		debtrepayment[i] = initialloan / float64(debttenure)
-		debtopening[i] = debtoutstanding[i-1]
-		debtoutstanding[i] = debtopening[i] - debtrepayment[i]
-		i++
-	}
-	return debtrepayment, debtopening, debtoutstanding
-}
-
-func interest(debtopening []float64, debtoutstanding []float64, intrate float64) []float64 {
+/*func interest(debtopening []float64, debtoutstanding []float64, intrate float64) []float64 {
 	interest := make([]float64, 0)
 	for i := 0; i < len(debtopening); i++ {
 		interest = append(interest, (debtopening[i]-debtoutstanding[i])*intrate)
 	}
 	return interest
-}
+}*/
 
 func depreciationslm(deprecapex float64, deprerate float64, pPALength int) ([]float64, []float64) {
 	fadp := make([]float64, pPALength)
@@ -235,5 +220,33 @@ func IRR(values []float64) (float64, error) {
 		}
 		x0 = x1
 	}
-	return 0, errors.New("could not find irr for the provided values")
+	return x0, errors.New("could not find irr for the provided values")
+}
+
+func debtrepay(initialloan float64, debttenure int, method string, ebitda []float64, intrate float64) ([]float64, []float64, []float64, []float64) {
+
+	debtrepayment := make([]float64, debttenure)
+	debtoutstanding := make([]float64, debttenure)
+	debtopening := make([]float64, debttenure)
+	interest := make([]float64, debttenure)
+	if method == "Equal" {
+		debtopening[0] = initialloan
+		debtrepayment[0] = initialloan / float64(debttenure)
+		debtoutstanding[0] = debtopening[0] - debtrepayment[0]
+		interest[0] = (debtopening[0] - debtoutstanding[0]) * intrate
+		for i := 1; i < debttenure; i++ {
+			debtrepayment[i] = initialloan / float64(debttenure)
+			debtopening[i] = debtoutstanding[i-1]
+			debtoutstanding[i] = debtopening[i] - debtrepayment[i]
+			interest[i] = (debtopening[i] - debtoutstanding[i]) * intrate
+		}
+	} else {
+		for i := 0; i < debttenure; i++ {
+			debtrepayment[i] = ebitda[i]
+			debtopening[i] = debtoutstanding[i-1]
+			debtoutstanding[i] = debtopening[i] - debtrepayment[i]
+			interest[i] = (debtopening[i] - debtoutstanding[i]) * intrate
+		}
+	}
+	return debtrepayment, debtopening, debtoutstanding, interest
 }
