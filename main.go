@@ -4,15 +4,19 @@ import (
 	"errors"
 	"fmt"
 	"math"
+
+	"github.com/tealeg/xlsx"
 )
 
 func main() {
 	fmt.Println("Enter PPA length, tariff")
 	var pPALength int = 25
 	var constrperiod int = 2
-	var tariff float64 = 2.5
+	var tariff float64 = 2.6
 	var intrate float64 = 0.09
-	var repaymethod string = "Equal"
+	var mindebtrepay float64 = 0.01
+	var repaymethod string = "Equa"
+	var dscr float64 = 1.2
 	var debttenure int = 21
 	var capacity float64 = 300
 	var unitCapex float64 = 4.0
@@ -20,7 +24,7 @@ func main() {
 	var unitOpex float64 = 0.06
 	var costunit float64 = 10000000
 	var cuf float64 = 0.292
-	var degradation float64 = 0.05
+	var degradation float64 = 0.005
 	var tariffEscalation float64 = 0.00
 	var opexEscalation float64 = 0.04
 	var gstrate float64 = 0.18
@@ -44,11 +48,12 @@ func main() {
 	capexTS[1] = capex / float64(constrperiod)
 	initialloan := capex * de
 	//fmt.Println(capexTS, initialloan)
-	debtrepayment, debtopening, debtoutstanding, interestpayment := debtrepay(initialloan, debttenure, repaymethod, ebitda, intrate)
+	debtrepayment, debtopening, debtoutstanding, interestpayment := debtrepay(initialloan, debttenure, repaymethod, ebitda[2:], intrate, dscr, mindebtrepay)
 	debtrepayment = constrappend(debtrepayment, constrperiod)
 	debtopening = constrappend(debtopening, constrperiod)
 	debtoutstanding = constrappend(debtoutstanding, constrperiod)
-	fmt.Println(debtopening[0], debtoutstanding[0])
+	//fmt.Println(debtopening[0], debtoutstanding[0])
+	//fmt.Println(debtrepayment, "\n\n", debtopening, "\n\n", interestpayment, "\n\n", debtoutstanding[0])
 	interestpayment = constrappend(interestpayment, constrperiod)
 	pbdt := minus(ebitda, interestpayment)
 	_, deprec := depreciationslm(capex-nondeprecap, deprerate, pPALength)
@@ -64,12 +69,53 @@ func main() {
 	taxableincome := minus(pbdt, txdeprec)
 	taxes := tax(taxableincome, taxrate)
 	profits := minus(pbt, taxes)
-	fmt.Println(profits)
 	//fmt.Println(fadp, "\n\n", deprec, "\n\n", txdeprec)
 	fcfe := minus(minus(ebitda, interestpayment), add(add(capexTS, debtrepayment), taxes))
+	//print(profits)
+	fmt.Println()
+	//print(fcfe)
 	//fmt.Println(ebitda, "\n\n", interestpayment, "\n\n", capexTS, "\n\n", debtrepayment, "\n\n", fcfe)
 	s, _ := IRR(fcfe)
-	fmt.Printf("%f", s)
+	fmt.Printf("%f is the EIRR for given assumptions", s)
+	wb := xlsx.NewFile()
+	sh, _ := wb.AddSheet("Financials")
+	adddata(generation, "Generation", sh)
+	adddata(tarifftimeseries, "Tariff", sh)
+	adddata(revenue, "Revenue", sh)
+	adddata(opex, "Opex", sh)
+	sh.AddRow()
+	adddata(ebitda, "Ebitda", sh)
+	adddata(interestpayment, "Interest paid", sh)
+	adddata(deprec, "Depreciation", sh)
+	adddata(pbt, "PBT", sh)
+	sh.AddRow()
+	adddata(taxes, "Tax", sh)
+	sh.AddRow()
+	adddata(profits, "Profits before Dividend", sh)
+	sh.AddRow()
+	sh.AddRow()
+	adddata(capexTS, "capex phasing", sh)
+	sh.AddRow()
+	adddata(debtopening, "debtopening", sh)
+	adddata(debtoutstanding, "debtoutstanding", sh)
+	adddata(debtrepayment, "debt repayment", sh)
+	sh.AddRow()
+	adddata(txdeprec, "tax depreciation", sh)
+	adddata(taxableincome, "taxable income", sh)
+	sh.AddRow()
+	adddata(fcfe, "fcfe", sh)
+	wb.Save("test2.1.xlsx")
+}
+
+func adddata(data []float64, dataname string, sh *xlsx.Sheet) {
+	i := sh.AddRow()
+	k := i.AddCell()
+	k.Value = dataname
+
+	for j := 1; j <= len(data); j++ {
+		k := i.AddCell()
+		k.SetFloat(data[j-1])
+	}
 }
 
 func revenuecal(gen []float64, tariff []float64) []float64 {
@@ -131,6 +177,12 @@ func add(from []float64, sub []float64) []float64 {
 	}
 	return to
 }
+
+/*func print(data []float64) {
+	for i := 0; i < len(data); i++ {
+		fmt.Println(data[i])
+	}
+}*/
 
 /*func interest(debtopening []float64, debtoutstanding []float64, intrate float64) []float64 {
 	interest := make([]float64, 0)
@@ -223,8 +275,8 @@ func IRR(values []float64) (float64, error) {
 	return x0, errors.New("could not find irr for the provided values")
 }
 
-func debtrepay(initialloan float64, debttenure int, method string, ebitda []float64, intrate float64) ([]float64, []float64, []float64, []float64) {
-
+func debtrepay(initialloan float64, debttenure int, method string, ebitda1 []float64, intrate float64, dscr float64, mindebtrepay float64) ([]float64, []float64, []float64, []float64) {
+	//fmt.Println(ebitda1)
 	debtrepayment := make([]float64, debttenure)
 	debtoutstanding := make([]float64, debttenure)
 	debtopening := make([]float64, debttenure)
@@ -233,20 +285,49 @@ func debtrepay(initialloan float64, debttenure int, method string, ebitda []floa
 		debtopening[0] = initialloan
 		debtrepayment[0] = initialloan / float64(debttenure)
 		debtoutstanding[0] = debtopening[0] - debtrepayment[0]
-		interest[0] = (debtopening[0] - debtoutstanding[0]) * intrate
+		interest[0] = (debtopening[0] + debtoutstanding[0]) / 2.0 * intrate
 		for i := 1; i < debttenure; i++ {
 			debtrepayment[i] = initialloan / float64(debttenure)
 			debtopening[i] = debtoutstanding[i-1]
 			debtoutstanding[i] = debtopening[i] - debtrepayment[i]
-			interest[i] = (debtopening[i] - debtoutstanding[i]) * intrate
+			interest[i] = (debtopening[i] + debtoutstanding[i]) / 2.0 * intrate
 		}
 	} else {
+		maxpay := maxrepay(ebitda1[:debttenure], dscr, intrate)
 		for i := 0; i < debttenure; i++ {
-			debtrepayment[i] = ebitda[i]
-			debtopening[i] = debtoutstanding[i-1]
+			if i == 0 {
+				debtopening[i] = initialloan
+			} else {
+				debtopening[i] = debtoutstanding[i-1]
+			}
+			//edbitda2 := ebitda1[i+1 : debttenure]
+			if (debtopening[i] < maxpay[i]) && ((debtopening[i] - mindebtrepay*initialloan) < maxpay[i+1]) {
+				//fmt.Println(i, "the debt opening is ", debtopening[i], "and maximum debt that future ebitda can sustain is", maxpay)
+				debtrepayment[i] = mindebtrepay * initialloan
+			} else if debtopening[i] < maxpay[i] {
+				debtrepayment[i] = debtopening[i] - maxpay[i+1]
+				//debtoutstanding[i] = debtopening[i] - debtrepayment[i]
+			} else {
+				debtrepayment[i] = (ebitda1[i]/dscr - intrate*debtopening[i]) / (1 - intrate/2.0)
+				/*debtoutstanding[i] = debtopening[i] - debtrepayment[i]
+				if debtoutstanding[i] < 0 {
+					debtrepayment[i] = debtopening[i]
+					debtoutstanding[i] = 0
+				}*/
+			}
 			debtoutstanding[i] = debtopening[i] - debtrepayment[i]
-			interest[i] = (debtopening[i] - debtoutstanding[i]) * intrate
+			interest[i] = (debtopening[i] + debtoutstanding[i]) / 2.0 * intrate
 		}
 	}
 	return debtrepayment, debtopening, debtoutstanding, interest
+}
+
+func maxrepay(ebitda []float64, dscr float64, intrate float64) []float64 {
+	maxpay := make([]float64, len(ebitda))
+	maxpay[len(ebitda)-1] = 0.0
+	for i := len(ebitda) - 2; i >= 0; i-- {
+		maxpay[i] = (2*ebitda[i]/dscr + maxpay[i+1]*(2.0-intrate)) / (2.0 + intrate)
+	}
+	//fmt.Println(maxdebtopening)
+	return maxpay
 }
