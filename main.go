@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/tealeg/xlsx"
+	"github.com/xuri/excelize/v2"
 )
 
 func main() {
@@ -20,7 +20,6 @@ func main() {
 	var debttenure int = 21
 	var capacity float64 = 300
 	var unitCapex float64 = 4.0
-	//var irr float64 = 0.18
 	var unitOpex float64 = 0.06
 	var costunit float64 = 10000000
 	var cuf float64 = 0.292
@@ -33,89 +32,77 @@ func main() {
 	var deprerate float64 = 0.06
 	var txdeprerate float64 = 0.075
 	var nondeprecap float64 = 0
-	//fmt.Scanf("%d", &pPALength)
-	//fmt.Scanf("%f", &tariff)
 	generation := constrappend(gencal(capacity, cuf, degradation, pPALength), constrperiod)
 	tarifftimeseries := constrappend(tariffcal(tariff, tariffEscalation, pPALength), constrperiod)
 	opex := constrappend(tariffcal(unitOpex*capacity*(1.0+gstrate)*costunit, opexEscalation, pPALength), constrperiod)
 	revenue := revenuecal(generation, tarifftimeseries)
-	//fmt.Println(generation, "\n1\n", revenue, "\n2\n", opex)
 	ebitda := minus(revenue, opex)
-	//fmt.Println(revenue[3], ebitda[3])
 	capex := capacity * unitCapex * costunit
 	capexTS := make([]float64, constrperiod)
 	capexTS[0] = capex / float64(constrperiod)
 	capexTS[1] = capex / float64(constrperiod)
 	initialloan := capex * de
-	//fmt.Println(capexTS, initialloan)
 	debtrepayment, debtopening, debtoutstanding, interestpayment := debtrepay(initialloan, debttenure, repaymethod, ebitda[2:], intrate, dscr, mindebtrepay)
 	debtrepayment = constrappend(debtrepayment, constrperiod)
 	debtopening = constrappend(debtopening, constrperiod)
 	debtoutstanding = constrappend(debtoutstanding, constrperiod)
-	//fmt.Println(debtopening[0], debtoutstanding[0])
-	//fmt.Println(debtrepayment, "\n\n", debtopening, "\n\n", interestpayment, "\n\n", debtoutstanding[0])
 	interestpayment = constrappend(interestpayment, constrperiod)
 	pbdt := minus(ebitda, interestpayment)
 	_, deprec := depreciationslm(capex-nondeprecap, deprerate, pPALength)
-	//fadp = constrappend(fadp, constrperiod)
 	deprec = constrappend(deprec, constrperiod)
 	pbt := minus(pbdt, deprec)
-	//fmt.Println(interestpayment)
 	debtrepayment[0] = -capexTS[0] * de
 	debtrepayment[1] = -capexTS[1] * de
 	_, txdeprec := depreciationslm(capex-nondeprecap, txdeprerate, pPALength)
-	//txfadp = constrappend(txfadp, constrperiod)
 	txdeprec = constrappend(txdeprec, constrperiod)
 	taxableincome := minus(pbdt, txdeprec)
 	taxes := tax(taxableincome, taxrate)
 	profits := minus(pbt, taxes)
-	//fmt.Println(fadp, "\n\n", deprec, "\n\n", txdeprec)
 	fcfe := minus(minus(ebitda, interestpayment), add(add(capexTS, debtrepayment), taxes))
-	//print(profits)
-	fmt.Println()
-	//print(fcfe)
-	//fmt.Println(ebitda, "\n\n", interestpayment, "\n\n", capexTS, "\n\n", debtrepayment, "\n\n", fcfe)
+	fmt.Println(profits[0])
 	s, _ := IRR(fcfe)
 	fmt.Printf("%f is the EIRR for given assumptions", s)
-	wb := xlsx.NewFile()
-	sh, _ := wb.AddSheet("Financials")
-	adddata(generation, "Generation", sh)
-	adddata(tarifftimeseries, "Tariff", sh)
-	adddata(revenue, "Revenue", sh)
-	adddata(opex, "Opex", sh)
-	sh.AddRow()
-	adddata(ebitda, "Ebitda", sh)
-	adddata(interestpayment, "Interest paid", sh)
-	adddata(deprec, "Depreciation", sh)
-	adddata(pbt, "PBT", sh)
-	sh.AddRow()
-	adddata(taxes, "Tax", sh)
-	sh.AddRow()
-	adddata(profits, "Profits before Dividend", sh)
-	sh.AddRow()
-	sh.AddRow()
-	adddata(capexTS, "capex phasing", sh)
-	sh.AddRow()
-	adddata(debtopening, "debtopening", sh)
-	adddata(debtoutstanding, "debtoutstanding", sh)
-	adddata(debtrepayment, "debt repayment", sh)
-	sh.AddRow()
-	adddata(txdeprec, "tax depreciation", sh)
-	adddata(taxableincome, "taxable income", sh)
-	sh.AddRow()
-	adddata(fcfe, "fcfe", sh)
-	wb.Save("test2.1.xlsx")
+	wb := excelize.NewFile()
+	defer func() {
+		if err := wb.Close(); err != nil {
+			fmt.Println(err)
+		}
+	}()
+	sheet := "Financials"
+	wb.SetSheetName("Sheet1", sheet)
+	adddata(generation, "Generation", wb, sheet, 2)
+	adddata(tarifftimeseries, "Tariff", wb, sheet, 3)
+	adddata(revenue, "Revenue", wb, sheet, 4)
+	adddata(opex, "Opex", wb, sheet, 5)
+	adddata(ebitda, "Ebitda", wb, sheet, 6)
+	adddata(interestpayment, "Interest paid", wb, sheet, 8)
+	adddata(deprec, "Depreciation", wb, sheet, 9)
+	adddata(pbt, "PBT", wb, sheet, 10)
+	adddata(taxes, "Tax", wb, sheet, 11)
+	adddata(profits, "Profits before Dividend", wb, sheet, 12)
+	adddata(capexTS, "capex phasing", wb, sheet, 15)
+	adddata(debtopening, "debtopening", wb, sheet, 16)
+	adddata(debtoutstanding, "debtoutstanding", wb, sheet, 17)
+	adddata(debtrepayment, "debt repayment", wb, sheet, 18)
+	adddata(txdeprec, "tax depreciation", wb, sheet, 20)
+	adddata(taxableincome, "taxable income", wb, sheet, 21)
+	adddata(fcfe, "fcfe", wb, sheet, 22)
+	wb.SaveAs("test2.1.xlsx")
 }
 
-func adddata(data []float64, dataname string, sh *xlsx.Sheet) {
-	i := sh.AddRow()
-	k := i.AddCell()
-	k.Value = dataname
-
-	for j := 1; j <= len(data); j++ {
-		k := i.AddCell()
-		k.SetFloat(data[j-1])
+func celladdress(col int, row int) string {
+	var str string
+	if col < 26 {
+		str = fmt.Sprintf("%s%d", string(rune(64+col)), row)
+	} else {
+		str = fmt.Sprintf("%s%d", (string(rune(64+col/26)) + string(rune(65+int(math.Mod(float64(col), 26))))), row)
 	}
+	return str
+}
+
+func adddata(data []float64, dataname string, wb *excelize.File, sheet string, i int) {
+	wb.SetCellStr(sheet, celladdress(1, i), dataname)
+	wb.SetSheetRow(sheet, celladdress(2, i), &data)
 }
 
 func revenuecal(gen []float64, tariff []float64) []float64 {
@@ -177,20 +164,6 @@ func add(from []float64, sub []float64) []float64 {
 	}
 	return to
 }
-
-/*func print(data []float64) {
-	for i := 0; i < len(data); i++ {
-		fmt.Println(data[i])
-	}
-}*/
-
-/*func interest(debtopening []float64, debtoutstanding []float64, intrate float64) []float64 {
-	interest := make([]float64, 0)
-	for i := 0; i < len(debtopening); i++ {
-		interest = append(interest, (debtopening[i]-debtoutstanding[i])*intrate)
-	}
-	return interest
-}*/
 
 func depreciationslm(deprecapex float64, deprerate float64, pPALength int) ([]float64, []float64) {
 	fadp := make([]float64, pPALength)
@@ -300,20 +273,12 @@ func debtrepay(initialloan float64, debttenure int, method string, ebitda1 []flo
 			} else {
 				debtopening[i] = debtoutstanding[i-1]
 			}
-			//edbitda2 := ebitda1[i+1 : debttenure]
 			if (debtopening[i] < maxpay[i]) && ((debtopening[i] - mindebtrepay*initialloan) < maxpay[i+1]) {
-				//fmt.Println(i, "the debt opening is ", debtopening[i], "and maximum debt that future ebitda can sustain is", maxpay)
 				debtrepayment[i] = mindebtrepay * initialloan
 			} else if debtopening[i] < maxpay[i] {
 				debtrepayment[i] = debtopening[i] - maxpay[i+1]
-				//debtoutstanding[i] = debtopening[i] - debtrepayment[i]
 			} else {
 				debtrepayment[i] = (ebitda1[i]/dscr - intrate*debtopening[i]) / (1 - intrate/2.0)
-				/*debtoutstanding[i] = debtopening[i] - debtrepayment[i]
-				if debtoutstanding[i] < 0 {
-					debtrepayment[i] = debtopening[i]
-					debtoutstanding[i] = 0
-				}*/
 			}
 			debtoutstanding[i] = debtopening[i] - debtrepayment[i]
 			interest[i] = (debtopening[i] + debtoutstanding[i]) / 2.0 * intrate
